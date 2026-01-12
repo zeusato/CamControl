@@ -129,6 +129,91 @@ class App {
     });
   }
 
+  /**
+   * Check if API key is configured, if not show the settings modal
+   * @returns {Promise<boolean>} true if API key exists, false if user cancelled
+   */
+  async ensureApiKey() {
+    const existingKey = await getApiKey();
+    if (existingKey) {
+      return true;
+    }
+
+    // Show modal and wait for user to save key
+    return new Promise((resolve) => {
+      const modal = document.getElementById('settings-modal');
+      const input = document.getElementById('api-key-input');
+      const apiStatus = document.getElementById('api-status');
+      const saveBtn = document.getElementById('save-api-key');
+      const closeBtn = document.getElementById('close-modal');
+      const cancelBtn = document.getElementById('cancel-modal');
+
+      // Setup modal state
+      input.value = '';
+      input.dataset.hasKey = 'false';
+      apiStatus.className = 'api-status disconnected';
+      apiStatus.innerHTML = '⚠️ API Key required to continue';
+      modal.style.display = 'flex';
+
+      // Toast notification
+      this.showToast('Please enter your API key to continue', 'info');
+
+      // One-time handlers for this flow
+      const cleanup = () => {
+        saveBtn.removeEventListener('click', onSave);
+        closeBtn.removeEventListener('click', onCancel);
+        cancelBtn.removeEventListener('click', onCancel);
+        modal.removeEventListener('click', onOverlayClick);
+      };
+
+      const onSave = async () => {
+        const key = input.value.trim();
+        if (key && key !== '••••••••••••••••') {
+          try {
+            await saveApiKey(key);
+            resetAIClient();
+            input.value = '••••••••••••••••';
+            input.dataset.hasKey = 'true';
+            apiStatus.className = 'api-status connected';
+            apiStatus.innerHTML = '✅ API Key saved successfully!';
+            this.showToast('API key saved!', 'success');
+
+            setTimeout(() => {
+              modal.style.display = 'none';
+              input.type = 'password';
+              document.getElementById('toggle-api-key').textContent = '👁️';
+              cleanup();
+              resolve(true);
+            }, 500);
+          } catch (e) {
+            this.showToast('Failed to save API key', 'error');
+          }
+        } else {
+          this.showToast('Please enter an API key', 'error');
+        }
+      };
+
+      const onCancel = () => {
+        modal.style.display = 'none';
+        input.type = 'password';
+        document.getElementById('toggle-api-key').textContent = '👁️';
+        cleanup();
+        resolve(false);
+      };
+
+      const onOverlayClick = (e) => {
+        if (e.target === modal) {
+          onCancel();
+        }
+      };
+
+      saveBtn.addEventListener('click', onSave);
+      closeBtn.addEventListener('click', onCancel);
+      cancelBtn.addEventListener('click', onCancel);
+      modal.addEventListener('click', onOverlayClick);
+    });
+  }
+
   // ================== Image Upload ==================
   setupImageUpload() {
     const uploadArea = document.getElementById('upload-area');
@@ -209,6 +294,11 @@ class App {
   }
 
   async analyzeImageWithAI() {
+    // Check API key first
+    if (!(await this.ensureApiKey())) {
+      return;
+    }
+
     this.showLoading('Analyzing image with AI...');
 
     try {
@@ -373,6 +463,11 @@ class App {
   // ================== Prompt Generation ==================
   async generatePrompts() {
     if (!this.isAnalyzed) return;
+
+    // Check API key first
+    if (!(await this.ensureApiKey())) {
+      return;
+    }
 
     this.showLoading('Generating prompts...');
 
